@@ -4,6 +4,9 @@
 .env.production
 .env.staging
 
+# Streamlit secrets 檔案 - 包含敏感資訊
+.streamlit/secrets.toml
+
 # Python 相關
 __pycache__/
 *.py[cod]
