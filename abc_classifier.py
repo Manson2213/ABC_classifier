@@ -4,16 +4,35 @@ import io
 import json
 import hashlib
 
-# 安全設定
+# 導入安全配置模組
 try:
-    AUTHORIZED_PASSWORDS = {
-        st.secrets["passwords"]["analyst"]: "物料分析師"
-    }
-except:
-    # 如果沒有 secrets 檔案，使用預設密碼
-    AUTHORIZED_PASSWORDS = {
-        "kanfon2025": "物料分析師"
-    }
+    from secure_config import get_authorized_passwords
+    # 安全設定 - 使用加密密碼
+    AUTHORIZED_PASSWORDS = get_authorized_passwords()
+    
+    # 如果無法讀取密碼，使用 Streamlit secrets 作為備用
+    if not AUTHORIZED_PASSWORDS:
+        try:
+            AUTHORIZED_PASSWORDS = {
+                st.secrets["passwords"]["analyst"]: "物料分析師"
+            }
+        except:
+            # 最後備用：預設密碼（僅用於開發）
+            st.warning("使用預設密碼，請設定加密密碼以確保安全性")
+            AUTHORIZED_PASSWORDS = {
+                "kanfon2025": "物料分析師"
+            }
+except ImportError:
+    # 如果無法導入安全配置模組，使用原始方式
+    st.error("無法載入安全配置模組，請檢查 secure_config.py 檔案")
+    try:
+        AUTHORIZED_PASSWORDS = {
+            st.secrets["passwords"]["analyst"]: "物料分析師"
+        }
+    except:
+        AUTHORIZED_PASSWORDS = {
+            "kanfon2025": "物料分析師"
+        }
 
 def check_password():
     """密碼驗證函數"""
