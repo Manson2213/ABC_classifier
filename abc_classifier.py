@@ -604,22 +604,119 @@ def perform_abc_analysis(df, qty_col, price_col):
     第二階段：在每個主分類內部，獨立進行 ABC 分析
     """
     try:
-        # 確保計算欄位是數字，無法轉換的會變成 NaN (Not a Number)
-        df['金額'] = pd.to_numeric(df[qty_col], errors='coerce') * pd.to_numeric(df[price_col], errors='coerce')
+        # 新增：數值清理函數
+        def clean_numeric_value(value):
+            """清理數值，處理常見的格式問題"""
+            if pd.isna(value):
+                return 0
+            
+            # 轉為字串處理
+            str_value = str(value).strip()
+            
+            # 移除常見的非數字字符
+            str_value = str_value.replace(',', '')    # 移除千分位符號
+            str_value = str_value.replace('$', '')    # 移除貨幣符號
+            str_value = str_value.replace('￥', '')   # 移除日幣符號
+            str_value = str_value.replace('€', '')    # 移除歐元符號
+            str_value = str_value.replace(' ', '')    # 移除空格
+            str_value = str_value.replace('\t', '')   # 移除Tab
+            str_value = str_value.replace('\n', '')   # 移除換行
+            
+            # 處理特殊值
+            if str_value.lower() in ['', '-', 'n/a', 'na', 'tbd', '待定', 'nan', 'null', '#n/a']:
+                return 0
+            
+            # 處理百分比
+            if str_value.endswith('%'):
+                try:
+                    return float(str_value[:-1]) / 100
+                except:
+                    return 0
+            
+            # 嘗試轉換為數字
+            try:
+                return float(str_value)
+            except ValueError:
+                # 如果還是無法轉換，嘗試提取數字
+                import re
+                numbers = re.findall(r'-?\d+\.?\d*', str_value)
+                if numbers:
+                    return float(numbers[0])
+                return 0
         
-        # 填充可能產生的空值為 0
-        df['金額'] = df['金額'].fillna(0)
+        # 資料品質診斷（可選，用於除錯）
+        if hasattr(st.session_state, 'debug_mode') and st.session_state.debug_mode:
+            st.write("### 🔍 數值轉換診斷")
+            
+            # 檢查前5筆的原始資料
+            sample_data = df.head().copy()
+            st.write("**原始資料樣本：**")
+            for idx, row in sample_data.iterrows():
+                qty_value = row[qty_col]
+                price_value = row[price_col]
+                st.write(f"第{idx+1}筆 - 需求數: `{qty_value}` (類型: {type(qty_value).__name__}) | 單價: `{price_value}` (類型: {type(price_value).__name__})")
+        
+        # 進行數值清理和轉換
+        st.info("正在清理和轉換數值格式...")
+        
+        # 清理需求數和單價
+        df['需求數_清理'] = df[qty_col].apply(clean_numeric_value)
+        df['單價_清理'] = df[price_col].apply(clean_numeric_value)
+        
+        # 計算金額
+        df['金額'] = df['需求數_清理'] * df['單價_清理']
+        
+        # 統計轉換結果
+        original_qty_types = df[qty_col].apply(lambda x: type(x).__name__).value_counts()
+        original_price_types = df[price_col].apply(lambda x: type(x).__name__).value_counts()
+        
+        zero_qty_count = (df['需求數_清理'] == 0).sum()
+        zero_price_count = (df['單價_清理'] == 0).sum()
+        zero_amount_count = (df['金額'] == 0).sum()
+        
+        # 顯示轉換統計
+        with st.expander("📊 數值轉換統計", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.write("**需求數統計**")
+                st.write(f"- 原始資料類型: {dict(original_qty_types)}")
+                st.write(f"- 轉換為0的筆數: {zero_qty_count}")
+                st.write(f"- 有效數值: {len(df) - zero_qty_count}")
+            
+            with col2:
+                st.write("**單價統計**")
+                st.write(f"- 原始資料類型: {dict(original_price_types)}")
+                st.write(f"- 轉換為0的筆數: {zero_price_count}")
+                st.write(f"- 有效數值: {len(df) - zero_price_count}")
+            
+            with col3:
+                st.write("**金額統計**")
+                st.write(f"- 金額為0的筆數: {zero_amount_count}")
+                st.write(f"- 有效金額: {len(df) - zero_amount_count}")
+                st.write(f"- 總金額: {df['金額'].sum():,.2f}")
+        
+        # 如果有異常值，顯示警告
+        if zero_amount_count > len(df) * 0.1:  # 超過10%的資料金額為0
+            st.warning(f"⚠️ 注意：有 {zero_amount_count} 筆資料的金額為0，請檢查原始資料品質")
+        
+        # 顯示無法轉換的資料樣本（除錯用）
+        if hasattr(st.session_state, 'debug_mode') and st.session_state.debug_mode:
+            if zero_amount_count > 0:
+                st.write("**金額為0的資料樣本：**")
+                zero_samples = df[df['金額'] == 0].head(3)
+                for idx, row in zero_samples.iterrows():
+                    st.write(f"- 第{idx+1}筆: 需求數 `{row[qty_col]}` → `{row['需求數_清理']}`, 單價 `{row[price_col]}` → `{row['單價_清理']}`")
 
         # 對 DataFrame 進行排序，以便後續計算累計值
         df = df.sort_values(by=['分類', '金額'], ascending=[True, False])
 
         # 使用 groupby() 按「分類」分組，並在組內計算累計百分比
-        # transform 會返回一個與原 df 同樣大小的 Series，完美解決問題
         df['累計金額'] = df.groupby('分類')['金額'].cumsum()
         group_totals = df.groupby('分類')['金額'].transform('sum')
         df['累計百分比'] = (df['累計金額'] / group_totals).fillna(0)
 
-        # 根據累計百分比分配 ABC 類別 (你的規則是 70/90)
+        # 根據累計百分比分配 ABC 類別
         def assign_abc_category(row):
             if row['金額'] == 0:
                 return 'C'
@@ -630,7 +727,6 @@ def perform_abc_analysis(df, qty_col, price_col):
             else:
                 return 'C'
         
-        # 直接使用函式分配，避免 categorical 問題
         df['ABC類別'] = df.apply(assign_abc_category, axis=1)
 
         return df
