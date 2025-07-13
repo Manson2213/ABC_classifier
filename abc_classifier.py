@@ -4,35 +4,27 @@ import io
 import json
 import hashlib
 
-# 導入安全配置模組
+# 安全設定 - 使用 Streamlit Secrets (適用於 Streamlit Cloud 部署)
 try:
-    from secure_config import get_authorized_passwords
-    # 安全設定 - 使用加密密碼
-    AUTHORIZED_PASSWORDS = get_authorized_passwords()
-    
-    # 如果無法讀取密碼，使用 Streamlit secrets 作為備用
-    if not AUTHORIZED_PASSWORDS:
-        try:
-            AUTHORIZED_PASSWORDS = {
-                st.secrets["passwords"]["analyst"]: "物料分析師"
-            }
-        except:
-            # 最後備用：預設密碼（僅用於開發）
-            st.warning("使用預設密碼，請設定加密密碼以確保安全性")
-            AUTHORIZED_PASSWORDS = {
-                "kanfon2025": "物料分析師"
-            }
-except ImportError:
-    # 如果無法導入安全配置模組，使用原始方式
-    st.error("無法載入安全配置模組，請檢查 secure_config.py 檔案")
-    try:
-        AUTHORIZED_PASSWORDS = {
-            st.secrets["passwords"]["analyst"]: "物料分析師"
-        }
-    except:
-        AUTHORIZED_PASSWORDS = {
-            "kanfon2025": "物料分析師"
-        }
+    # 優先使用 Streamlit Secrets（適用於 Streamlit Cloud 部署）
+    AUTHORIZED_PASSWORDS = {
+        st.secrets["passwords"]["analyst"]: "物料分析師"
+    }
+except KeyError:
+    # 如果沒有設定 secrets，顯示錯誤訊息
+    st.error("❌ 未找到密碼配置，請在 Streamlit Cloud 中設定 Secrets")
+    st.info("請在應用程式設定中添加以下 Secrets 配置：")
+    st.code("""
+[passwords]
+analyst = "your_secure_password_here"
+    """)
+    st.stop()
+except Exception as e:
+    # 開發環境備用密碼（僅用於本地測試）
+    st.warning("⚠️ 使用開發環境密碼，部署時請設定 Streamlit Secrets")
+    AUTHORIZED_PASSWORDS = {
+        "kanfon2025": "物料分析師"
+    }
 
 def check_password():
     """密碼驗證函數"""
